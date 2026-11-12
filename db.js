@@ -1,9 +1,15 @@
 // Gym Log — on-device data store (IndexedDB), with an in-memory copy for speed.
 // Records:
-//   exercise { id, name, category, type: weighted|bodyweight|timed|cardio, aliases: [] }
+//   exercise { id, name, category, type: weighted|bodyweight|timed|cardio|done, tags: ['Kettlebell'], aliases: [] }
 //   workout  { id, date: 'YYYY-MM-DD', note }
 //   entry    { id, workoutId, exerciseId, order, note, sets: [{ w, r, sec, mi, min }] }
 const CATEGORIES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Legs', 'Core', 'Cardio'];
+// Extra tags an exercise can carry on top of its one category.
+const TAGS = ['Kettlebell'];
+const KETTLEBELL_DEFAULTS = ['One arm kettlebell press', 'Two arm kettlebell press', 'Kettlebell windmills', 'Kettlebell halos',
+  'Kettlebell clean to press', 'Kettlebell cleans', 'Kettlebell swings', 'Kettlebell pull throughs', 'Kettlebell deadlifts',
+  'Goblet squats', 'Kettlebell rows', 'Kettlebell pullovers', 'Kettlebell horn lift', 'Kettlebell sit-up thrusters',
+  'Kettlebell zombie slides', 'Kettlebell trident'];
 const TYPES = {
   weighted:   { label: 'Weighted',   fields: [['w', 'lb', 5], ['r', 'reps', 1]] },
   bodyweight: { label: 'Bodyweight', fields: [['r', 'reps', 1], ['w', '+lb', 5]] },
@@ -108,8 +114,10 @@ const Q = {
   entriesFor(workoutId) {
     return [...DB.state.entries.values()].filter(e => e.workoutId === workoutId).sort((a, b) => a.order - b.order);
   },
-  exercisesIn(category) {
-    return [...DB.state.exercises.values()].filter(x => x.category === category)
+  // A group is a category (Chest…) or a tag (Kettlebell).
+  exercisesIn(group) {
+    const isTag = TAGS.includes(group);
+    return [...DB.state.exercises.values()].filter(x => isTag ? (x.tags || []).includes(group) : x.category === group)
       .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
   },
   // Most recent entry for an exercise, optionally only before a given date and excluding one entry.
@@ -135,8 +143,17 @@ const M = {
   async ensureWorkout(date) {
     return Q.workoutByDate(date) || DB.put('workouts', { id: uid(), date, note: '' });
   },
-  async addExercise({ name, category, type }) {
-    return DB.put('exercises', { id: uid(), name: name.trim(), category, type, aliases: [] });
+  async addExercise({ name, category, type, tags = [] }) {
+    return DB.put('exercises', { id: uid(), name: name.trim(), category, type, tags, aliases: [] });
+  },
+  // One-time: tag the kettlebell exercises that came from the Notes history.
+  async tagKettlebellDefaults() {
+    if (await DB.getMeta('kbTagged')) return;
+    const rows = [...DB.state.exercises.values()].filter(x => KETTLEBELL_DEFAULTS.includes(x.name) && !(x.tags || []).includes('Kettlebell'))
+      .map(x => ({ ...x, tags: [...(x.tags || []), 'Kettlebell'] }));
+    await DB.putMany('exercises', rows);
+    // Only mark done once the history is here, so a fresh phone still gets tagged after its import.
+    if ([...DB.state.exercises.values()].some(x => KETTLEBELL_DEFAULTS.includes(x.name))) await DB.setMeta('kbTagged', true);
   },
   async addEntry(date, exerciseId) {
     const w = await M.ensureWorkout(date);
@@ -159,7 +176,7 @@ const M = {
       const have = st.exercises.has(x.id) ? x.id : byName.get(String(x.name).toLowerCase());
       if (have) { exMap.set(x.id, have); continue; }
       if (!TYPES[x.type] || !CATEGORIES.includes(x.category)) throw new Error(`Bad exercise: ${x.name}`);
-      newEx.push({ id: x.id, name: x.name, category: x.category, type: x.type, aliases: x.aliases || [] });
+      newEx.push({ id: x.id, name: x.name, category: x.category, type: x.type, tags: (x.tags || []).filter(t => TAGS.includes(t)), aliases: x.aliases || [] });
       exMap.set(x.id, x.id);
     }
     for (const w of data.workouts) {
@@ -184,8 +201,8 @@ const M = {
     return { app: 'gymlog', kind: 'backup', version: 1, exportedAt: new Date().toISOString(),
       exercises: [...st.exercises.values()], workouts: [...st.workouts.values()], entries: [...st.entries.values()] };
   },
-  async updateExercise(id, { name, category }) {
-    const x = { ...DB.state.exercises.get(id), name: name.trim(), category };
+  async updateExercise(id, { name, category, tags }) {
+    const x = { ...DB.state.exercises.get(id), name: name.trim(), category, tags };
     return DB.put('exercises', x);
   },
   // Move every session of one exercise onto another, then remove the first. Keeps the old name as an alias.

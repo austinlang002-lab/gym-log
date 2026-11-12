@@ -1,5 +1,5 @@
 // Gym Log — UI. Phase 1: logging. Phase 2: calendar + locked day view. Phase 3: exercise history. Phase 5: backup.
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.7.0';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -176,19 +176,19 @@ const shortDate = iso => prettyDate(iso, { month: 'short', day: 'numeric', year:
 function exercisesView() {
   return `
     <input class="search" id="exlist-search" type="search" placeholder="Search all exercises" value="${esc(ui.exSearch)}" autocomplete="off">
-    <div class="chips cat-chips">${CATEGORIES.map(c => `<button class="chip ${c === ui.exCat && !ui.exSearch ? 'on' : ''}" data-act="ex-cat" data-c="${c}">${c}</button>`).join('')}</div>
+    <div class="chips cat-chips">${[...CATEGORIES, ...TAGS].map(c => `<button class="chip ${c === ui.exCat && !ui.exSearch ? 'on' : ''}" data-act="ex-cat" data-c="${c}">${c}</button>`).join('')}</div>
     <div class="list" id="exlist">${exerciseRows()}</div>`;
 }
 
 function exerciseRows() {
   const stats = exerciseStats(), f = ui.exSearch.trim().toLowerCase();
   const list = [...DB.state.exercises.values()]
-    .filter(x => f ? x.name.toLowerCase().includes(f) : x.category === ui.exCat)
+    .filter(x => f ? x.name.toLowerCase().includes(f) : TAGS.includes(ui.exCat) ? (x.tags || []).includes(ui.exCat) : x.category === ui.exCat)
     .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
   if (!list.length) return `<div class="empty">${f ? 'No exercise matches.' : 'No exercises in this category yet.'}</div>`;
   return list.map(x => {
     const s = stats.get(x.id);
-    const sub = [s.pr ? `PR ${s.pr.text}` : '', `${s.times}×`, f ? x.category : ''].filter(Boolean).join(' · ');
+    const sub = [s.pr ? `PR ${s.pr.text}` : '', `${s.times}×`, f || TAGS.includes(ui.exCat) ? x.category : ''].filter(Boolean).join(' · ');
     return `<button class="row" data-act="open-ex" data-id="${x.id}"><span>${esc(x.name)}</span><span class="muted small nowrap">${esc(sub)}</span></button>`;
   }).join('');
 }
@@ -211,7 +211,7 @@ function openExercise(id) {
   }).join('');
   openSheet(`${sheetHead('<button class="link" data-act="close">‹ Exercises</button>', ex.name, `<button class="link" data-act="ex-edit" data-id="${id}">Edit</button>`)}
     <div class="sheet-body">
-      <p class="muted small">${esc(ex.category)} · ${TYPES[ex.type].label}</p>
+      <p class="muted small">${esc([ex.category, ...(ex.tags || [])].join(' · '))} · ${TYPES[ex.type].label}</p>
       <div class="stat-grid">
         <div class="stat"><span class="stat-label">${s.pr ? esc(s.pr.label) : 'Record'}</span><span class="stat-val">${s.pr ? esc(s.pr.text) : '—'}</span><span class="stat-sub">${s.pr ? esc(shortDate(s.pr.date)) : 'No weight logged'}</span></div>
         <div class="stat"><span class="stat-label">Times done</span><span class="stat-val">${s.times}</span><span class="stat-sub">${last ? 'Last ' + esc(shortDate(last.date)) : 'Never'}</span></div>
@@ -227,6 +227,7 @@ function editExerciseForm(id, msg = '') {
     <div class="sheet-body">
       <label class="field">Name<input id="xe-name" type="text" value="${esc(ex.name)}" autocomplete="off"></label>
       <div class="field">Category<div class="chips" id="xe-cat">${CATEGORIES.map(c => `<button class="chip ${c === ex.category ? 'on' : ''}" data-act="nx-cat" data-c="${c}">${c}</button>`).join('')}</div></div>
+      <div class="field">Tags<div class="chips" id="xe-tags">${TAGS.map(t => `<button class="chip ${(ex.tags || []).includes(t) ? 'on' : ''}" data-act="tag-toggle" data-t="${t}">${t}</button>`).join('')}</div></div>
       <p class="muted small">Type: ${TYPES[ex.type].label}. Renaming to an existing exercise's name merges the two, keeping every session.</p>
       ${msg ? `<p class="edit-banner">${esc(msg)}</p>` : ''}
     </div>`);
@@ -244,7 +245,8 @@ async function saveExerciseEdit(id) {
     await M.mergeExercise(id, other.id);
     return openExercise(other.id);
   }
-  await M.updateExercise(id, { name, category });
+  const tags = [...document.querySelectorAll('#xe-tags .chip.on')].map(c => c.dataset.t);
+  await M.updateExercise(id, { name, category, tags });
   return openExercise(id);
 }
 
@@ -305,8 +307,23 @@ function sheetHead(left, title, right = '') {
 function pickCategory() {
   openSheet(`${sheetHead('<button class="link" data-act="close">Cancel</button>', 'Add exercise')}
     <div class="sheet-body">
-      <div class="cat-grid">${CATEGORIES.map(c => `<button class="cat" data-act="cat" data-c="${c}">${c}<span>${Q.exercisesIn(c).length}</span></button>`).join('')}</div>
+      <input class="search" id="add-search" type="search" placeholder="Search all exercises" autocomplete="off">
+      <div id="add-results" class="list" hidden></div>
+      <div class="cat-grid" id="add-groups">${[...CATEGORIES, ...TAGS].map(c => `<button class="cat ${TAGS.includes(c) ? 'tag' : ''}" data-act="cat" data-c="${c}">${c}<span>${Q.exercisesIn(c).length}</span></button>`).join('')}</div>
     </div>`);
+}
+
+// Typing in the Add screen's search lists matches from every category.
+function refreshAddSearch(q) {
+  const f = q.trim().toLowerCase(), res = $('#add-results'), groups = $('#add-groups');
+  res.hidden = !f; groups.hidden = !!f;
+  if (!f) return;
+  const list = [...DB.state.exercises.values()].filter(x => x.name.toLowerCase().includes(f) || (x.aliases || []).some(a => a.includes(f)))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+  res.innerHTML = list.map(x => {
+    const last = Q.lastEntry(x.id);
+    return `<button class="row" data-act="pick" data-id="${x.id}"><span>${esc(x.name)}<span class="muted small row-sub">${esc([x.category, ...(x.tags || [])].join(' · '))}</span></span><span class="muted small">${last ? esc(prettyDate(last.date, { month: 'short', day: 'numeric', year: '2-digit' })) : 'new'}</span></button>`;
+  }).join('') + `<button class="row new-row" data-act="new-ex" data-c="" data-name="${esc(q.trim())}"><span>+ New exercise “${esc(q.trim())}”</span></button>`;
 }
 
 // Step 2: exercise list, A–Z
@@ -342,10 +359,14 @@ function refreshExerciseList(category, filter) {
 
 // Step 2b: new exercise
 function newExerciseForm(category, name = '') {
-  openSheet(`${sheetHead(`<button class="link" data-act="back-list" data-c="${category}">‹ Back</button>`, 'New exercise')}
+  const from = category;
+  const tagged = TAGS.includes(category) ? [category] : [];
+  if (!CATEGORIES.includes(category)) category = '';
+  openSheet(`${sheetHead(`<button class="link" data-act="back-list" data-c="${from}">‹ Back</button>`, 'New exercise')}
     <div class="sheet-body">
       <label class="field">Name<input id="nx-name" type="text" value="${esc(name)}" placeholder="e.g. Incline bench" autocomplete="off"></label>
       <div class="field">Category<div class="chips" id="nx-cat">${CATEGORIES.map(c => `<button class="chip ${c === category ? 'on' : ''}" data-act="nx-cat" data-c="${c}">${c}</button>`).join('')}</div></div>
+      <div class="field">Tags<div class="chips" id="nx-tags">${TAGS.map(t => `<button class="chip ${tagged.includes(t) ? 'on' : ''}" data-act="tag-toggle" data-t="${t}">${t}</button>`).join('')}</div></div>
       <div class="field">Type<div class="chips" id="nx-type">${Object.entries(TYPES).map(([k, t]) => `<button class="chip ${k === defaultType(category) ? 'on' : ''}" data-act="nx-type" data-t="${k}">${t.label}</button>`).join('')}</div>
         <p class="muted small" id="nx-hint">${typeHint(defaultType(category))}</p></div>
       <button class="btn" data-act="nx-save">Create and log</button>
@@ -483,19 +504,24 @@ document.addEventListener('click', async ev => {
   if (act === 'close') return closeSheet();
   if (act === 'cat') return pickExercise(t.dataset.c);
   if (act === 'back-cat') return pickCategory();
-  if (act === 'back-list') return pickExercise(t.dataset.c);
-  if (act === 'new-ex') return newExerciseForm(t.dataset.c, $('#ex-search')?.value || '');
+  if (act === 'back-list') return t.dataset.c ? pickExercise(t.dataset.c) : pickCategory();
+  if (act === 'new-ex') return newExerciseForm(t.dataset.c, t.dataset.name ?? $('#ex-search')?.value ?? '');
+  if (act === 'tag-toggle') { t.classList.toggle('on'); return; }
   if (act === 'nx-cat' || act === 'nx-type') {
     t.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === t));
+    t.parentElement.classList.remove('need');
     if (act === 'nx-type') $('#nx-hint').textContent = typeHint(t.dataset.t);
     return;
   }
   if (act === 'nx-save') {
     const name = $('#nx-name').value.trim();
     if (!name) { $('#nx-name').focus(); return; }
-    const category = $('#nx-cat .on').dataset.c, type = $('#nx-type .on').dataset.t;
+    const catBtn = $('#nx-cat .on');
+    if (!catBtn) { $('#nx-cat').classList.add('need'); return; }
+    const category = catBtn.dataset.c, type = $('#nx-type .on').dataset.t;
+    const tags = [...document.querySelectorAll('#nx-tags .chip.on')].map(c => c.dataset.t);
     const dupe = [...DB.state.exercises.values()].find(x => x.name.toLowerCase() === name.toLowerCase());
-    const ex = dupe || await M.addExercise({ name, category, type });
+    const ex = dupe || await M.addExercise({ name, category, type, tags });
     const entry = await M.addEntry(ui.addDate || ui.logDate, ex.id);
     return openEditor(entry.id);
   }
@@ -547,6 +573,7 @@ document.addEventListener('click', async ev => {
 document.addEventListener('input', ev => {
   const t = ev.target;
   if (t.id === 'ex-search') return refreshExerciseList(t.dataset.c, t.value);
+  if (t.id === 'add-search') return refreshAddSearch(t.value);
   if (t.id === 'exlist-search') {
     ui.exSearch = t.value;
     $('#exlist').innerHTML = exerciseRows();
@@ -568,6 +595,7 @@ document.addEventListener('change', async ev => {
   try {
     msg.textContent = 'Importing…';
     const r = await M.importData(JSON.parse(await file.text()));
+    await M.tagKettlebellDefaults();
     render();
     $('#import-msg').textContent = `Imported ${r.workouts} workouts, ${r.entries} entries, ${r.exercises} exercises.` + (r.skipped ? ` ${r.skipped} already here, skipped.` : '');
   } catch (e) {
@@ -584,7 +612,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) flush
 
 // ---------- start ----------
 (async () => {
-  try { await DB.load(); ui.lastBackup = await DB.getMeta('lastBackup') || null; } catch (e) { console.error(e); }
+  try { await DB.load(); await M.tagKettlebellDefaults(); ui.lastBackup = await DB.getMeta('lastBackup') || null; } catch (e) { console.error(e); }
   let start = 'log';
   try { start = localStorage.getItem('lastTab') || 'log'; } catch (e) {}
   show(titles[start] ? start : 'log');

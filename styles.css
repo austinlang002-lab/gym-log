@@ -266,3 +266,11 @@ body.sheet-open { overflow: hidden; }
   padding: 12px 14px; border-radius: 12px; background: rgba(255,184,77,.12); border: 1px solid rgba(255,184,77,.5); color: #ffb84d;
 }
 .backup-banner span { font-size: 14px; color: var(--text); opacity: .85; }
+
+/* ---------- tags + add search ---------- */
+.cat.tag { grid-column: 1 / -1; min-height: 56px; flex-direction: row; gap: 10px; border-style: dashed; }
+.row-sub { display: block; margin-top: 2px; }
+.new-row { color: var(--accent); font-weight: 600; }
+.chips.need .chip { border-color: #ff6b6b; }
+#add-results { margin-bottom: 12px; }
+.row > .muted.small { white-space: nowrap; flex: none; }
