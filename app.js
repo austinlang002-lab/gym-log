@@ -1,5 +1,5 @@
 // Gym Log — UI. Phase 1: logging.
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.3.0';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -135,6 +135,7 @@ const typeHint = t => ({
   weighted: 'Pounds × reps per set.',
   bodyweight: 'Reps per set, with optional added pounds (e.g. weighted dips).',
   timed: 'Seconds per set, with optional pounds (e.g. planks).',
+  done: 'No sets. Just marks it done (e.g. Abs circuit).',
   cardio: 'Distance in miles and time in minutes.',
 }[t]);
 
@@ -145,7 +146,7 @@ let saveTimer = null;
 function openEditor(entryId) {
   const entry = DB.state.entries.get(entryId);
   const ex = DB.state.exercises.get(entry.exerciseId);
-  editing = { entry: structuredClone(entry), ex };
+  editing = { entry: structuredClone(entry), ex, holdOn: entry.sets.some(s => s.hold > 0) };
   drawEditor();
 }
 
@@ -154,18 +155,23 @@ function drawEditor() {
   const w = DB.state.workouts.get(entry.workoutId);
   const last = Q.lastEntry(ex.id, { before: w.date, excludeId: entry.id });
   const fields = TYPES[ex.type].fields;
+  const canHold = HOLD_TYPES.includes(ex.type);
+  const showHold = canHold && (editing.holdOn || entry.sets.some(s => s.hold > 0));
   const rows = entry.sets.map((s, i) => `
     <div class="set-row">
       <span class="set-n">${i + 1}</span>
       ${fields.map(([k, unit, step]) => stepper(i, k, s[k] ?? 0, unit, step)).join('')}
       <button class="icon-btn small del" data-act="set-del" data-i="${i}" aria-label="Remove set ${i + 1}">✕</button>
+      ${showHold ? `<div class="hold-row">${stepper(i, 'hold', s.hold ?? 0, 'sec hold', 5)}</div>` : ''}
     </div>`).join('');
   openSheet(`${sheetHead('<button class="link" data-act="ed-done">‹ Log</button>', ex.name, '<button class="link strong" data-act="ed-done">Done</button>')}
     <div class="sheet-body">
       <p class="muted small">${esc(ex.category)} · ${TYPES[ex.type].label}${last ? ` · Last ${esc(prettyDate(last.date, { month: 'short', day: 'numeric' }))}: ${esc(summarize(last.entry, ex.type))}` : ' · First time'}</p>
+      ${ex.type === 'done' ? '<div class="empty">Logged as done. No sets to track.</div>' : `
+      ${canHold ? `<div class="chips"><button class="chip ${showHold ? 'on' : ''}" data-act="hold-toggle">⏱ Hold</button></div>` : ''}
       <div class="sets">${rows || '<div class="empty">No sets.</div>'}</div>
-      <button class="btn ghost" data-act="set-add">+ Add set</button>
-      <label class="field">Note<input id="ed-note" type="text" value="${esc(entry.note)}" placeholder="Optional (e.g. 15 sec holds)"></label>
+      <button class="btn ghost" data-act="set-add">+ Add set</button>`}
+      <label class="field">Note<input id="ed-note" type="text" value="${esc(entry.note)}" placeholder="Optional (e.g. each arm)"></label>
       <button class="btn danger" data-act="ed-delete">Remove from workout</button>
     </div>`);
 }
@@ -200,6 +206,12 @@ function settingsView() {
     <div class="card">
       <h2>Your data</h2>
       <p class="muted">${n.workouts.size} workouts · ${n.entries.size} exercise entries · ${n.exercises.size} exercises</p>
+    </div>
+    <div class="card">
+      <h2>Import history</h2>
+      <p class="muted">Load a Gym Log file (.json), such as your converted Notes history. Safe to run twice: nothing is duplicated.</p>
+      <label class="btn ghost file-btn">Choose file<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+      <p class="muted small" id="import-msg"></p>
     </div>
     <button class="btn danger" data-act="erase">Erase all data</button>
     <p class="muted small center">Gym Log ${APP_VERSION}</p>`;
@@ -267,6 +279,13 @@ document.addEventListener('click', async ev => {
     queueSave();
     return drawEditor();
   }
+  if (act === 'hold-toggle') {
+    editing.holdOn = !(editing.holdOn || editing.entry.sets.some(s => s.hold > 0));
+    if (!editing.holdOn) { editing.savedHolds = editing.entry.sets.map(s => s.hold); editing.entry.sets.forEach(s => delete s.hold); }
+    else editing.entry.sets.forEach((s, i) => { if (!s.hold) s.hold = editing.savedHolds?.[i] || 10; });
+    queueSave();
+    return drawEditor();
+  }
   if (act === 'set-del') { editing.entry.sets.splice(+t.dataset.i, 1); queueSave(); return drawEditor(); }
   if (act === 'ed-done') { await flushSave(); editing = null; return closeSheet(); }
   if (act === 'ed-delete') {
@@ -293,6 +312,21 @@ document.addEventListener('input', ev => {
     return queueSave();
   }
   if (t.id === 'ed-note' && editing) { editing.entry.note = t.value; return queueSave(); }
+});
+
+document.addEventListener('change', async ev => {
+  if (ev.target.id !== 'import-file') return;
+  const file = ev.target.files[0], msg = $('#import-msg');
+  if (!file) return;
+  try {
+    msg.textContent = 'Importing…';
+    const r = await M.importData(JSON.parse(await file.text()));
+    render();
+    $('#import-msg').textContent = `Imported ${r.workouts} workouts, ${r.entries} entries, ${r.exercises} exercises.` + (r.skipped ? ` ${r.skipped} already here, skipped.` : '');
+  } catch (e) {
+    msg.textContent = 'Import failed: ' + (e.message || e);
+  }
+  ev.target.value = '';
 });
 
 // Select the number when a value box is tapped, so typing replaces it.

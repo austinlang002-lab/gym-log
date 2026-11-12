@@ -194,7 +194,11 @@ body.sheet-open { overflow: hidden; }
 
 /* sets */
 .sets { margin-top: 12px; }
-.set-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.hold-row { flex-basis: 100%; display: flex; padding: 0 38px 0 24px; }
+.hold-row .stepper { max-width: 200px; }
+.hold-row .step { min-height: 44px; }
+.file-btn { display: flex; align-items: center; justify-content: center; }
 .set-n { width: 18px; flex: none; color: var(--muted); font-weight: 700; text-align: center; font-size: 15px; }
 .stepper {
   flex: 1; min-width: 0; display: flex; align-items: stretch;

@@ -9,7 +9,9 @@ const TYPES = {
   bodyweight: { label: 'Bodyweight', fields: [['r', 'reps', 1], ['w', '+lb', 5]] },
   timed:      { label: 'Timed',      fields: [['sec', 'sec', 5], ['w', 'lb', 5]] },
   cardio:     { label: 'Cardio',     fields: [['mi', 'miles', 0.25], ['min', 'min', 1]] },
+  done:       { label: 'Done only',  fields: [] },
 };
+const HOLD_TYPES = ['weighted', 'bodyweight'];
 
 const DB = (() => {
   const VERSION = 2;
@@ -65,10 +67,19 @@ const DB = (() => {
     }
   }
 
+  async function putMany(name, rows) {
+    const d = await open();
+    await new Promise((res, rej) => {
+      const t = d.transaction(name, 'readwrite'), st = t.objectStore(name);
+      for (const r of rows) { st.put(r); state[name].set(r.id, r); }
+      t.oncomplete = res; t.onerror = () => rej(t.error);
+    });
+  }
+
   async function getMeta(key) { return req((await store('meta', 'readonly')).get(key)); }
   async function setMeta(key, val) { return req((await store('meta', 'readwrite')).put(val, key)); }
 
-  return { open, load, put, del, clearAll, getMeta, setMeta, state };
+  return { open, load, put, putMany, del, clearAll, getMeta, setMeta, state };
 })();
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -132,10 +143,42 @@ const M = {
     const order = Q.entriesFor(w.id).length;
     const last = Q.lastEntry(exerciseId, { before: date }) || Q.lastEntry(exerciseId);
     const ex = DB.state.exercises.get(exerciseId);
-    const sets = last ? last.entry.sets.map(s => ({ ...s })) : [blankSet(ex.type)];
+    const sets = ex.type === 'done' ? [] : last ? last.entry.sets.map(s => ({ ...s })) : [blankSet(ex.type)];
     return DB.put('entries', { id: uid(), workoutId: w.id, exerciseId, order, note: '', sets });
   },
   async saveEntry(entry) { return DB.put('entries', entry); },
+  // Merge an import file into what is on the phone. Safe to run twice: records already here are skipped.
+  async importData(data) {
+    if (!data || data.app !== 'gymlog' || !Array.isArray(data.exercises) || !Array.isArray(data.workouts) || !Array.isArray(data.entries))
+      throw new Error('This is not a Gym Log file.');
+    const st = DB.state, exMap = new Map(), wMap = new Map();
+    const byName = new Map([...st.exercises.values()].map(x => [x.name.toLowerCase(), x.id]));
+    const byDate = new Map([...st.workouts.values()].map(w => [w.date, w.id]));
+    const newEx = [], newW = [], newE = [];
+    for (const x of data.exercises) {
+      const have = st.exercises.has(x.id) ? x.id : byName.get(String(x.name).toLowerCase());
+      if (have) { exMap.set(x.id, have); continue; }
+      if (!TYPES[x.type] || !CATEGORIES.includes(x.category)) throw new Error(`Bad exercise: ${x.name}`);
+      newEx.push({ id: x.id, name: x.name, category: x.category, type: x.type, aliases: x.aliases || [] });
+      exMap.set(x.id, x.id);
+    }
+    for (const w of data.workouts) {
+      const have = byDate.get(w.date);
+      if (have) { wMap.set(w.id, have); continue; }
+      newW.push({ id: w.id, date: w.date, note: w.note || '' }); wMap.set(w.id, w.id);
+    }
+    let skipped = 0;
+    for (const e of data.entries) {
+      if (st.entries.has(e.id)) { skipped++; continue; }
+      const workoutId = wMap.get(e.workoutId), exerciseId = exMap.get(e.exerciseId);
+      if (!workoutId || !exerciseId) { skipped++; continue; }
+      newE.push({ id: e.id, workoutId, exerciseId, order: e.order ?? 0, note: e.note || '', sets: e.sets || [] });
+    }
+    await DB.putMany('exercises', newEx);
+    await DB.putMany('workouts', newW);
+    await DB.putMany('entries', newE);
+    return { exercises: newEx.length, workouts: newW.length, entries: newE.length, skipped };
+  },
   async deleteEntry(id) {
     const e = DB.state.entries.get(id);
     await DB.del('entries', id);
@@ -144,16 +187,19 @@ const M = {
 };
 
 function blankSet(type) {
+  if (type === 'done') return {};
   return type === 'cardio' ? { mi: 0, min: 0 } : type === 'timed' ? { sec: 30, w: 0 } : type === 'bodyweight' ? { r: 10, w: 0 } : { w: 0, r: 10 };
 }
 
 // One-line summary of an entry's sets, e.g. "135×8 ×3 · 135×4".
 function summarize(entry, type) {
+  if (type === 'done' || !entry.sets.length) return 'Done';
+  const hold = s => s.hold ? ` (${num(s.hold)}s hold)` : '';
   const fmt = s => {
     if (type === 'cardio') return [s.mi ? `${num(s.mi)} mi` : '', s.min ? `${num(s.min)} min` : ''].filter(Boolean).join(' · ') || 'done';
     if (type === 'timed') return `${num(s.sec)}s${s.w ? ` @${num(s.w)}` : ''}`;
-    if (type === 'bodyweight') return `${num(s.r)} reps${s.w ? ` +${num(s.w)} lb` : ''}`;
-    return `${num(s.w)}×${num(s.r)}`;
+    if (type === 'bodyweight') return `${num(s.r)} reps${s.w ? ` +${num(s.w)} lb` : ''}${hold(s)}`;
+    return `${num(s.w)}×${num(s.r)}${hold(s)}`;
   };
   const parts = [];
   for (const s of entry.sets) {
