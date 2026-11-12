@@ -1,5 +1,5 @@
 // Caches the app so it opens with no signal. Bump CACHE when files change.
-const CACHE = 'gymlog-v0.3.1';
+const CACHE = 'gymlog-v0.6.0';
 const FILES = [
   './',
   'index.html',

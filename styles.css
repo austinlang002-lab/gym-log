@@ -214,3 +214,55 @@ body.sheet-open { overflow: hidden; }
 .step-val:focus { outline: none; color: var(--accent); }
 .stepper label span { font-size: 11px; color: var(--muted); font-weight: 600; }
 .del { color: var(--muted); }
+
+/* ---------- Phase 2: calendar + locked days ---------- */
+.entry.locked { cursor: default; }
+.day-note { margin: 0 0 12px; line-height: 1.4; }
+.edit-banner {
+  margin-top: 12px; padding: 10px 14px; border-radius: 12px; font-size: 15px; font-weight: 600;
+  background: rgba(255,184,77,.12); border: 1px solid rgba(255,184,77,.5); color: #ffb84d;
+}
+.cal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
+.cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cal-total { margin-left: auto; }
+.sw { width: 12px; height: 12px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); display: inline-block; }
+.sw.on { background: var(--accent); border-color: var(--accent); }
+.cal-month { margin: 20px 0 8px; }
+.cal-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.cal-title h2 { margin: 0; font-size: 20px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-wd { text-align: center; font-size: 11px; font-weight: 700; color: var(--muted); padding-bottom: 2px; }
+.cal-day {
+  aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--muted); font-size: 14px; font-weight: 600;
+  font-variant-numeric: tabular-nums; padding: 0;
+}
+.cal-day.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 800; }
+.cal-day.today { box-shadow: 0 0 0 2px var(--text); }
+.cal-day.future { opacity: .25; }
+.cal-day:active:not(:disabled) { transform: scale(.94); }
+
+/* ---------- Phase 3: exercises ---------- */
+.cat-chips { margin: 0 0 12px; }
+.nowrap { white-space: nowrap; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 20px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 2px; }
+.stat-label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.stat-val { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stat:first-child .stat-val { color: var(--accent); }
+.stat-sub { font-size: 13px; color: var(--muted); }
+.section-h { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
+.log { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.log-row { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.log-row:last-child { border-bottom: 0; }
+.log-row.pr { background: rgba(61,220,132,.07); }
+.log-date { font-weight: 700; font-size: 15px; }
+.log-sets { font-size: 15px; color: var(--text); margin-top: 3px; font-variant-numeric: tabular-nums; line-height: 1.35; }
+.pr-tag { font-size: 11px; font-weight: 800; color: var(--accent-ink); background: var(--accent); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }
+
+/* ---------- Phase 5: backup ---------- */
+.backup-banner {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; margin-bottom: 14px;
+  padding: 12px 14px; border-radius: 12px; background: rgba(255,184,77,.12); border: 1px solid rgba(255,184,77,.5); color: #ffb84d;
+}
+.backup-banner span { font-size: 14px; color: var(--text); opacity: .85; }

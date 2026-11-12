@@ -179,6 +179,24 @@ const M = {
     await DB.putMany('entries', newE);
     return { exercises: newEx.length, workouts: newW.length, entries: newE.length, skipped };
   },
+  exportData() {
+    const st = DB.state;
+    return { app: 'gymlog', kind: 'backup', version: 1, exportedAt: new Date().toISOString(),
+      exercises: [...st.exercises.values()], workouts: [...st.workouts.values()], entries: [...st.entries.values()] };
+  },
+  async updateExercise(id, { name, category }) {
+    const x = { ...DB.state.exercises.get(id), name: name.trim(), category };
+    return DB.put('exercises', x);
+  },
+  // Move every session of one exercise onto another, then remove the first. Keeps the old name as an alias.
+  async mergeExercise(fromId, toId) {
+    const from = DB.state.exercises.get(fromId), to = DB.state.exercises.get(toId);
+    const moved = [...DB.state.entries.values()].filter(e => e.exerciseId === fromId).map(e => ({ ...e, exerciseId: toId }));
+    await DB.putMany('entries', moved);
+    await DB.put('exercises', { ...to, aliases: [...new Set([...(to.aliases || []), from.name.toLowerCase(), ...(from.aliases || [])])] });
+    await DB.del('exercises', fromId);
+    return moved.length;
+  },
   async deleteEntry(id) {
     const e = DB.state.entries.get(id);
     await DB.del('entries', id);
