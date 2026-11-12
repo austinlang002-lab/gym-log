@@ -1,5 +1,5 @@
 // Gym Log — UI. Phase 1: logging.
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.3.1';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -210,7 +210,7 @@ function settingsView() {
     <div class="card">
       <h2>Import history</h2>
       <p class="muted">Load a Gym Log file (.json), such as your converted Notes history. Safe to run twice: nothing is duplicated.</p>
-      <label class="btn ghost file-btn">Choose file<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+      <label class="btn ghost file-btn">Choose file<input type="file" id="import-file" hidden></label>
       <p class="muted small" id="import-msg"></p>
     </div>
     <button class="btn danger" data-act="erase">Erase all data</button>
